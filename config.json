@@ -1,9 +1,9 @@
 {
-    "server":"34.214.173.78",
+    "server":"127.0.0.1",
     "server_port":1984,
     "local_port":1081,
     "local_address":"127.0.0.1",
-    "local_auth": "xjp:lkq",
+    "local_auth": "abc:123",
     "password":"xjplkq",
     "method": "aes-256-cfb",
     "timeout":600
