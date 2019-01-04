@@ -4,7 +4,7 @@
     "local_port":1081,
     "local_address":"127.0.0.1",
     "local_auth": "abc:123",
-    "password":"xjplkq",
+    "password":"abc123",
     "method": "aes-256-cfb",
     "timeout":600
 }
