@@ -21,6 +21,7 @@ import (
 )
 
 var debug ss.DebugLog
+var AuthError = errors.New("local auth error")
 
 var (
 	errAddrType      = errors.New("socks addr type not supported")
@@ -40,7 +41,7 @@ func init() {
 	rand.Seed(time.Now().Unix())
 }
 
-func handShake(conn net.Conn) (err error) {
+func handShake(conn net.Conn, auth string) (err error) {
 	const (
 		idVer     = 0
 		idNmethod = 1
@@ -72,9 +73,44 @@ func handShake(conn net.Conn) (err error) {
 	} else { // error, should not get extra data
 		return errAuthExtraData
 	}
-	// send confirmation: version 5, no authentication required
-	_, err = conn.Write([]byte{socksVer5, 0})
+
+	if auth == "" {
+		// send confirmation: version 5, USERNAME/PASSWORD authentication required
+		if _, err = conn.Write([]byte{socksVer5, 0}); err != nil {
+			return
+		}
+	} else {
+		// send confirmation: version 5, no authentication required
+		if _, err = conn.Write([]byte{socksVer5, 2}); err != nil {
+			return
+		}
+		buf = make([]byte, 513)
+		if _, err = conn.Read(buf); err != nil {
+			return
+		}
+
+		ulen := buf[1]
+		uname := buf[2 : ulen+2]
+
+		plen := buf[2+ulen]
+		passwd := buf[3+ulen : plen+ulen+3]
+
+		_auth := fmt.Sprintf("%s:%s", uname, passwd)
+		if _auth == auth {
+			// auth success
+			if _, err = conn.Write([]byte{1, 0}); err != nil {
+				return
+			}
+		} else {
+			// auth failed
+			if _, err = conn.Write([]byte{1, 1}); err != nil {
+				return
+			}
+			return AuthError
+		}
+	}
 	return
+
 }
 
 func getRequest(conn net.Conn) (rawaddr []byte, host string, err error) {
@@ -280,7 +316,7 @@ func createServerConn(rawaddr []byte, addr string) (remote *ss.Conn, err error) 
 	return nil, err
 }
 
-func handleConnection(conn net.Conn) {
+func handleConnection(conn net.Conn, auth string) {
 	if debug {
 		debug.Printf("socks connect from %s\n", conn.RemoteAddr().String())
 	}
@@ -292,7 +328,7 @@ func handleConnection(conn net.Conn) {
 	}()
 
 	var err error = nil
-	if err = handShake(conn); err != nil {
+	if err = handShake(conn, auth); err != nil {
 		log.Println("socks handshake:", err)
 		return
 	}
@@ -329,7 +365,7 @@ func handleConnection(conn net.Conn) {
 	debug.Println("closed connection to", addr)
 }
 
-func run(listenAddr string) {
+func run(listenAddr string, auth string) {
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		log.Fatal(err)
@@ -341,7 +377,7 @@ func run(listenAddr string) {
 			log.Println("accept:", err)
 			continue
 		}
-		go handleConnection(conn)
+		go handleConnection(conn, auth)
 	}
 }
 
@@ -417,6 +453,7 @@ func main() {
 	flag.IntVar(&cmdConfig.Timeout, "t", 300, "timeout in seconds")
 	flag.IntVar(&cmdConfig.LocalPort, "l", 0, "local socks5 proxy port")
 	flag.StringVar(&cmdConfig.Method, "m", "", "encryption method, default: aes-256-cfb")
+	flag.StringVar(&cmdConfig.LocalAuth, "a", "", "local socks5 authentication eg.: abc:123")
 	flag.BoolVar((*bool)(&debug), "d", false, "print debug message")
 	flag.StringVar(&cmdURI, "u", "", "shadowsocks URI")
 
@@ -477,5 +514,5 @@ func main() {
 	}
 
 	parseServerConfig(config)
-	run(config.LocalAddress + ":" + strconv.Itoa(config.LocalPort))
+	run(config.LocalAddress+":"+strconv.Itoa(config.LocalPort), config.LocalAuth)
 }
